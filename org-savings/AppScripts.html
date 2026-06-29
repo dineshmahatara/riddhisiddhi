@@ -1,0 +1,438 @@
+<script>
+(function () {
+  'use strict';
+
+  const ORG_NAME = '<?= orgName ?>';
+  const CURRENCY = '<?= currency ?>';
+
+  let currentUser = null;
+  let goalsCache = [];
+  let membersCache = [];
+  let reviewWdId = null;
+
+  const ROLE_LEVEL = { member: 1, treasurer: 2, admin: 3 };
+
+  function api(action, payload) {
+    return new Promise(function (resolve, reject) {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject)
+        .apiCall(action, payload || null);
+    });
+  }
+
+  function fmtMoney(amount) {
+    try {
+      return new Intl.NumberFormat(undefined, { style: 'currency', currency: CURRENCY }).format(amount);
+    } catch (e) {
+      return CURRENCY + ' ' + Number(amount).toFixed(2);
+    }
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
+  function fmtDateTime(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleString();
+  }
+
+  function showToast(title, body, isError) {
+    document.getElementById('toastTitle').textContent = title;
+    document.getElementById('toastBody').textContent = body;
+    const toast = document.getElementById('toast');
+    toast.classList.toggle('text-bg-danger', !!isError);
+    bootstrap.Toast.getOrCreateInstance(toast).show();
+  }
+
+  function hasRole(minRole) {
+    return (ROLE_LEVEL[currentUser.role] || 0) >= (ROLE_LEVEL[minRole] || 0);
+  }
+
+  async function init() {
+    try {
+      const res = await api('getCurrentUser');
+      if (!res.success) throw new Error(res.error);
+
+      currentUser = res.data;
+      if (!currentUser.authorized) {
+        document.getElementById('loadingOverlay').classList.add('d-none');
+        document.getElementById('authError').classList.remove('d-none');
+        document.getElementById('authErrorMsg').textContent = currentUser.error || 'Unauthorized';
+        return;
+      }
+
+      document.getElementById('userName').textContent = currentUser.name;
+      document.getElementById('userRole').textContent = currentUser.role;
+
+      if (hasRole('treasurer')) {
+        document.querySelectorAll('.role-treasurer').forEach(function (el) { el.classList.remove('d-none'); });
+      }
+      if (hasRole('admin')) {
+        document.querySelectorAll('.role-admin').forEach(function (el) { el.classList.remove('d-none'); });
+      }
+
+      document.getElementById('wdCurrency').textContent = CURRENCY;
+      document.getElementById('depCurrency').textContent = CURRENCY;
+
+      bindEvents();
+      await loadDashboard();
+      showPage('dashboard');
+
+      document.getElementById('loadingOverlay').classList.add('d-none');
+      document.getElementById('app').classList.remove('d-none');
+    } catch (err) {
+      document.getElementById('loadingOverlay').classList.add('d-none');
+      document.getElementById('authError').classList.remove('d-none');
+      document.getElementById('authErrorMsg').textContent = err.message || String(err);
+    }
+  }
+
+  function showPage(page) {
+    document.querySelectorAll('.page-section').forEach(function (s) { s.classList.add('d-none'); });
+    const section = document.getElementById('page-' + page);
+    if (section) section.classList.remove('d-none');
+
+    document.querySelectorAll('#navMenu .nav-link').forEach(function (a) {
+      a.classList.toggle('active', a.dataset.page === page);
+    });
+
+    const titles = {
+      dashboard: 'Dashboard', transactions: 'Transactions', withdrawals: 'Withdrawals',
+      goals: 'Savings Goals', statement: 'My Statement', members: 'Members',
+      deposit: 'Record Deposit', settings: 'Settings', audit: 'Audit Log'
+    };
+    document.getElementById('pageTitle').textContent = titles[page] || page;
+
+    const loaders = {
+      dashboard: loadDashboard,
+      transactions: loadTransactions,
+      withdrawals: loadWithdrawals,
+      goals: loadGoals,
+      statement: loadStatement,
+      members: loadMembers,
+      deposit: loadDepositForm,
+      settings: loadSettings,
+      audit: loadAudit
+    };
+    if (loaders[page]) loaders[page]();
+
+    document.getElementById('sidebar').classList.remove('show');
+  }
+
+  function bindEvents() {
+    document.querySelectorAll('#navMenu .nav-link').forEach(function (link) {
+      link.addEventListener('click', function (e) {
+        e.preventDefault();
+        showPage(link.dataset.page);
+      });
+    });
+
+    document.getElementById('sidebarToggle').addEventListener('click', function () {
+      document.getElementById('sidebar').classList.toggle('show');
+    });
+
+    document.getElementById('txFilterBtn').addEventListener('click', loadTransactions);
+    document.getElementById('wdFilterStatus').addEventListener('change', loadWithdrawals);
+
+    document.getElementById('withdrawalForm').addEventListener('submit', submitWithdrawal);
+    document.getElementById('depositForm').addEventListener('submit', submitDeposit);
+    document.getElementById('goalForm').addEventListener('submit', submitGoal);
+    document.getElementById('memberForm').addEventListener('submit', submitMember);
+    document.getElementById('settingsForm').addEventListener('submit', submitSettings);
+    document.getElementById('initDbBtn').addEventListener('click', initDatabase);
+
+    document.getElementById('approveWdBtn').addEventListener('click', function () { reviewWithdrawal('approve'); });
+    document.getElementById('rejectWdBtn').addEventListener('click', function () { reviewWithdrawal('reject'); });
+  }
+
+  async function loadDashboard() {
+    const res = await api('getDashboard');
+    if (!res.success) return showToast('Error', res.error, true);
+    const d = res.data;
+
+    document.getElementById('myBalanceBadge').textContent = 'Balance: ' + fmtMoney(d.myBalance);
+
+    const cards = [
+      { label: 'Total Savings', value: fmtMoney(d.totalSavings), icon: 'bi-piggy-bank', bg: 'bg-primary-subtle text-primary' },
+      { label: 'My Balance', value: fmtMoney(d.myBalance), icon: 'bi-wallet2', bg: 'bg-success-subtle text-success' },
+      { label: 'Monthly Deposits', value: fmtMoney(d.monthlyDeposits), icon: 'bi-arrow-down-circle', bg: 'bg-info-subtle text-info' },
+      { label: 'Pending Withdrawals', value: d.pendingWithdrawals, icon: 'bi-hourglass-split', bg: 'bg-warning-subtle text-warning' }
+    ];
+
+    if (hasRole('treasurer')) {
+      cards.push({ label: 'Active Members', value: d.activeMembers, icon: 'bi-people', bg: 'bg-secondary-subtle text-secondary' });
+    }
+
+    document.getElementById('statCards').innerHTML = cards.map(function (c) {
+      return '<div class="col-6 col-lg-' + (cards.length > 4 ? '2' : '3') + '">' +
+        '<div class="stat-card d-flex align-items-center gap-3">' +
+        '<div class="icon ' + c.bg + '"><i class="bi ' + c.icon + '"></i></div>' +
+        '<div><div class="label">' + c.label + '</div><div class="value">' + c.value + '</div></div></div></div>';
+    }).join('');
+
+    const txBody = document.querySelector('#recentTxTable tbody');
+    txBody.innerHTML = (d.recentTransactions || []).map(function (t) {
+      const cls = t.amount >= 0 ? 'amount-positive' : 'amount-negative';
+      return '<tr><td>' + fmtDate(t.createdAt) + '</td><td><span class="badge bg-light text-dark">' + t.type + '</span></td>' +
+        '<td>' + (t.memberEmail || '—') + '</td><td class="text-end ' + cls + '">' + fmtMoney(t.amount) + '</td></tr>';
+    }).join('') || '<tr><td colspan="4" class="text-center text-muted py-4">No transactions yet</td></tr>';
+
+    document.getElementById('goalProgressList').innerHTML = (d.goalProgress || []).slice(0, 4).map(function (g) {
+      return '<div class="mb-3"><div class="d-flex justify-content-between small mb-1"><span>' + g.name + '</span><span>' + g.progress + '%</span></div>' +
+        '<div class="progress"><div class="progress-bar" style="width:' + g.progress + '%"></div></div>' +
+        '<div class="text-muted small mt-1">' + fmtMoney(g.currentAmount) + ' / ' + fmtMoney(g.targetAmount) + '</div></div>';
+    }).join('') || '<p class="text-muted small mb-0">No active goals</p>';
+
+    const topList = document.getElementById('topContributors');
+    topList.innerHTML = (d.topContributors || []).map(function (c, i) {
+      return '<li class="list-group-item d-flex justify-content-between align-items-center">' +
+        '<span><span class="badge bg-primary me-2">' + (i + 1) + '</span>' + c.name + '</span>' +
+        '<strong>' + fmtMoney(c.balance) + '</strong></li>';
+    }).join('');
+  }
+
+  async function loadTransactions() {
+    const filters = {
+      type: document.getElementById('txFilterType').value,
+      fromDate: document.getElementById('txFilterFrom').value,
+      toDate: document.getElementById('txFilterTo').value,
+      limit: 200
+    };
+    const res = await api('getTransactions', filters);
+    if (!res.success) return showToast('Error', res.error, true);
+
+    document.querySelector('#txTable tbody').innerHTML = res.data.map(function (t) {
+      const cls = t.amount >= 0 ? 'amount-positive' : 'amount-negative';
+      return '<tr><td>' + fmtDateTime(t.createdAt) + '</td><td>' + t.type + '</td><td>' + t.memberEmail + '</td>' +
+        '<td>' + (t.description || '—') + '</td><td class="text-end ' + cls + '">' + fmtMoney(t.amount) + '</td></tr>';
+    }).join('') || '<tr><td colspan="5" class="text-center text-muted py-4">No transactions found</td></tr>';
+  }
+
+  async function loadWithdrawals() {
+    await loadGoalsSelect('wdGoal');
+    const status = document.getElementById('wdFilterStatus').value;
+    const res = await api('getWithdrawals', status ? { status: status } : {});
+    if (!res.success) return showToast('Error', res.error, true);
+
+    document.querySelector('#wdTable tbody').innerHTML = res.data.map(function (w) {
+      const badge = 'badge-' + w.status;
+      let actions = '';
+      if (hasRole('treasurer') && w.status === 'pending') {
+        actions = '<button class="btn btn-sm btn-outline-primary review-wd" data-id="' + w.id + '" data-amount="' + w.amount + '" data-member="' + w.memberEmail + '">Review</button>';
+      }
+      return '<tr><td>' + fmtDate(w.createdAt) + '</td><td>' + w.memberEmail + '</td><td>' + fmtMoney(w.amount) +
+        '</td><td><span class="badge ' + badge + '">' + w.status + '</span></td><td>' + (w.reason || '—') + '</td>' +
+        '<td class="role-treasurer">' + actions + '</td></tr>';
+    }).join('') || '<tr><td colspan="6" class="text-center text-muted py-4">No withdrawal requests</td></tr>';
+
+    document.querySelectorAll('.review-wd').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        reviewWdId = btn.dataset.id;
+        document.getElementById('reviewDetails').textContent =
+          'Approve withdrawal of ' + fmtMoney(btn.dataset.amount) + ' for ' + btn.dataset.member + '?';
+        document.getElementById('reviewNotes').value = '';
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('reviewModal')).show();
+      });
+    });
+  }
+
+  async function submitWithdrawal(e) {
+    e.preventDefault();
+    const res = await api('requestWithdrawal', {
+      amount: document.getElementById('wdAmount').value,
+      goalId: document.getElementById('wdGoal').value,
+      reason: document.getElementById('wdReason').value
+    });
+    if (!res.success) return showToast('Error', res.error, true);
+    showToast('Submitted', 'Withdrawal request submitted for approval.');
+    e.target.reset();
+    loadWithdrawals();
+  }
+
+  async function reviewWithdrawal(action) {
+    const res = await api('reviewWithdrawal', {
+      id: reviewWdId,
+      action: action,
+      reviewNotes: document.getElementById('reviewNotes').value
+    });
+    bootstrap.Modal.getInstance(document.getElementById('reviewModal')).hide();
+    if (!res.success) return showToast('Error', res.error, true);
+    showToast('Done', res.message || 'Request processed.');
+    loadWithdrawals();
+    loadDashboard();
+  }
+
+  async function loadGoals() {
+    const res = await api('getGoals');
+    if (!res.success) return;
+    goalsCache = res.data;
+
+    document.getElementById('goalsGrid').innerHTML = goalsCache.map(function (g) {
+      return '<div class="col-md-6 col-lg-4"><div class="goal-card">' +
+        '<div class="d-flex justify-content-between align-items-start mb-2">' +
+        '<h6 class="mb-0">' + g.name + '</h6>' +
+        '<span class="badge bg-light text-dark">' + g.status + '</span></div>' +
+        '<p class="text-muted small">' + (g.description || 'No description') + '</p>' +
+        '<div class="progress mb-2"><div class="progress-bar bg-primary" style="width:' + g.progress + '%"></div></div>' +
+        '<div class="d-flex justify-content-between small">' +
+        '<span>' + fmtMoney(g.currentAmount) + ' saved</span>' +
+        '<span>Target: ' + fmtMoney(g.targetAmount) + '</span></div>' +
+        (g.deadline ? '<div class="text-muted small mt-2"><i class="bi bi-calendar"></i> ' + fmtDate(g.deadline) + '</div>' : '') +
+        '</div></div>';
+    }).join('') || '<div class="col-12"><p class="text-muted">No savings goals yet.</p></div>';
+  }
+
+  async function loadGoalsSelect(selectId) {
+    if (!goalsCache.length) {
+      const res = await api('getGoals');
+      if (res.success) goalsCache = res.data.filter(function (g) { return g.status === 'active'; });
+    }
+    const sel = document.getElementById(selectId);
+    const val = sel.value;
+    sel.innerHTML = '<option value="">General savings</option>' +
+      goalsCache.map(function (g) { return '<option value="' + g.id + '">' + g.name + '</option>'; }).join('');
+    sel.value = val;
+  }
+
+  async function submitGoal(e) {
+    e.preventDefault();
+    const res = await api('addGoal', {
+      name: document.getElementById('goalName').value,
+      description: document.getElementById('goalDesc').value,
+      targetAmount: document.getElementById('goalTarget').value,
+      deadline: document.getElementById('goalDeadline').value
+    });
+    if (!res.success) return showToast('Error', res.error, true);
+    bootstrap.Modal.getInstance(document.getElementById('goalModal')).hide();
+    e.target.reset();
+    goalsCache = [];
+    showToast('Created', 'Savings goal created.');
+    loadGoals();
+  }
+
+  async function loadStatement() {
+    const res = await api('getMemberStatement', {});
+    if (!res.success) return showToast('Error', res.error, true);
+    const s = res.data;
+
+    document.getElementById('statementSummary').innerHTML =
+      '<div class="col-4"><div class="text-muted small">Total Deposits</div><div class="h5 amount-positive">' + fmtMoney(s.summary.totalDeposits) + '</div></div>' +
+      '<div class="col-4"><div class="text-muted small">Total Withdrawals</div><div class="h5 amount-negative">' + fmtMoney(s.summary.totalWithdrawals) + '</div></div>' +
+      '<div class="col-4"><div class="text-muted small">Current Balance</div><div class="h5">' + fmtMoney(s.summary.currentBalance) + '</div></div>';
+
+    document.querySelector('#statementTable tbody').innerHTML = s.transactions.map(function (t) {
+      const cls = t.amount >= 0 ? 'amount-positive' : 'amount-negative';
+      return '<tr><td>' + fmtDate(t.createdAt) + '</td><td>' + t.type + '</td><td>' + (t.description || '—') +
+        '</td><td class="text-end ' + cls + '">' + fmtMoney(t.amount) + '</td></tr>';
+    }).join('') || '<tr><td colspan="4" class="text-center text-muted py-4">No transactions</td></tr>';
+  }
+
+  async function loadMembers() {
+    const res = await api('getMembers');
+    if (!res.success) return showToast('Error', res.error, true);
+    membersCache = res.data;
+
+    document.querySelector('#membersTable tbody').innerHTML = membersCache.map(function (m) {
+      let actions = '';
+      if (hasRole('admin')) {
+        const newStatus = m.status === 'active' ? 'inactive' : 'active';
+        actions = '<button class="btn btn-sm btn-outline-secondary toggle-member" data-id="' + m.id + '" data-status="' + newStatus + '">' +
+          (m.status === 'active' ? 'Deactivate' : 'Activate') + '</button>';
+      }
+      return '<tr><td>' + m.name + '</td><td>' + m.email + '</td><td><span class="badge bg-primary-subtle text-primary">' + m.role +
+        '</span></td><td>' + fmtMoney(m.balance) + '</td><td>' + m.status + '</td><td class="role-admin">' + actions + '</td></tr>';
+    }).join('');
+
+    document.querySelectorAll('.toggle-member').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        const res = await api('updateMember', { id: btn.dataset.id, status: btn.dataset.status });
+        if (!res.success) return showToast('Error', res.error, true);
+        loadMembers();
+      });
+    });
+  }
+
+  async function submitMember(e) {
+    e.preventDefault();
+    const res = await api('addMember', {
+      name: document.getElementById('memName').value,
+      email: document.getElementById('memEmail').value,
+      phone: document.getElementById('memPhone').value,
+      role: document.getElementById('memRole').value
+    });
+    if (!res.success) return showToast('Error', res.error, true);
+    bootstrap.Modal.getInstance(document.getElementById('memberModal')).hide();
+    e.target.reset();
+    showToast('Added', 'Member added successfully.');
+    loadMembers();
+  }
+
+  async function loadDepositForm() {
+    const res = await api('getMembers');
+    if (res.success) {
+      membersCache = res.data.filter(function (m) { return m.status === 'active'; });
+      document.getElementById('depMember').innerHTML = membersCache.map(function (m) {
+        return '<option value="' + m.id + '">' + m.name + ' (' + m.email + ')</option>';
+      }).join('');
+    }
+    await loadGoalsSelect('depGoal');
+  }
+
+  async function submitDeposit(e) {
+    e.preventDefault();
+    const res = await api('recordDeposit', {
+      memberId: document.getElementById('depMember').value,
+      amount: document.getElementById('depAmount').value,
+      goalId: document.getElementById('depGoal').value,
+      description: document.getElementById('depDescription').value,
+      reference: document.getElementById('depReference').value
+    });
+    if (!res.success) return showToast('Error', res.error, true);
+    showToast('Recorded', 'Deposit recorded successfully.');
+    e.target.reset();
+  }
+
+  async function loadSettings() {
+    const res = await api('getSettings');
+    if (!res.success) return;
+    const s = res.data;
+    document.getElementById('setOrgName').value = s.orgName;
+    document.getElementById('setCurrency').value = s.currency;
+    document.getElementById('setMinWithdrawal').value = s.minWithdrawal;
+    document.getElementById('setAutoEnroll').checked = s.autoEnroll === 'true';
+  }
+
+  async function submitSettings(e) {
+    e.preventDefault();
+    const res = await api('updateSettings', {
+      orgName: document.getElementById('setOrgName').value,
+      currency: document.getElementById('setCurrency').value,
+      minWithdrawal: document.getElementById('setMinWithdrawal').value,
+      autoEnroll: document.getElementById('setAutoEnroll').checked ? 'true' : 'false'
+    });
+    if (!res.success) return showToast('Error', res.error, true);
+    showToast('Saved', 'Settings updated.');
+  }
+
+  async function initDatabase() {
+    if (!confirm('Initialize database sheets?')) return;
+    const res = await api('initializeDatabase');
+    if (!res.success) return showToast('Error', res.error, true);
+    showToast('Done', res.message || 'Database initialized.');
+  }
+
+  async function loadAudit() {
+    const res = await api('getAuditLog');
+    if (!res.success) return;
+    document.querySelector('#auditTable tbody').innerHTML = res.data.map(function (l) {
+      return '<tr><td class="small">' + fmtDateTime(l.timestamp) + '</td><td class="small">' + l.userEmail +
+        '</td><td>' + l.action + '</td><td>' + l.entity + '</td><td class="small text-muted">' + (l.details || '') + '</td></tr>';
+    }).join('') || '<tr><td colspan="5" class="text-center text-muted py-4">No audit entries</td></tr>';
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+})();
+</script>

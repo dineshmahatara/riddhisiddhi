@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <?!= include('Styles'); ?>
+</head>
+<body>
+  <!-- Loading overlay -->
+  <div id="loadingOverlay" class="loading-overlay">
+    <div class="spinner-border text-primary" role="status"></div>
+    <p class="mt-3 text-muted">Loading <?= orgName ?>...</p>
+  </div>
+
+  <!-- Auth error -->
+  <div id="authError" class="d-none min-vh-100 d-flex align-items-center justify-content-center bg-light">
+    <div class="card shadow-sm border-0" style="max-width: 420px">
+      <div class="card-body text-center p-5">
+        <i class="bi bi-shield-lock text-danger fs-1"></i>
+        <h4 class="mt-3">Access Denied</h4>
+        <p id="authErrorMsg" class="text-muted"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main app -->
+  <div id="app" class="d-none">
+    <!-- Sidebar -->
+    <nav id="sidebar" class="sidebar">
+      <div class="sidebar-brand">
+        <i class="bi bi-piggy-bank-fill"></i>
+        <span><?= orgName ?></span>
+      </div>
+      <ul class="nav flex-column mt-3" id="navMenu">
+        <li class="nav-item"><a class="nav-link active" href="#" data-page="dashboard"><i class="bi bi-speedometer2"></i> Dashboard</a></li>
+        <li class="nav-item"><a class="nav-link" href="#" data-page="transactions"><i class="bi bi-arrow-left-right"></i> Transactions</a></li>
+        <li class="nav-item"><a class="nav-link" href="#" data-page="withdrawals"><i class="bi bi-cash-stack"></i> Withdrawals</a></li>
+        <li class="nav-item"><a class="nav-link" href="#" data-page="goals"><i class="bi bi-bullseye"></i> Savings Goals</a></li>
+        <li class="nav-item"><a class="nav-link" href="#" data-page="statement"><i class="bi bi-file-text"></i> My Statement</a></li>
+        <li class="nav-item role-treasurer d-none"><a class="nav-link" href="#" data-page="members"><i class="bi bi-people"></i> Members</a></li>
+        <li class="nav-item role-treasurer d-none"><a class="nav-link" href="#" data-page="deposit"><i class="bi bi-plus-circle"></i> Record Deposit</a></li>
+        <li class="nav-item role-admin d-none"><a class="nav-link" href="#" data-page="settings"><i class="bi bi-gear"></i> Settings</a></li>
+        <li class="nav-item role-admin d-none"><a class="nav-link" href="#" data-page="audit"><i class="bi bi-journal-text"></i> Audit Log</a></li>
+      </ul>
+      <div class="sidebar-footer">
+        <div class="user-info">
+          <i class="bi bi-person-circle"></i>
+          <div>
+            <div id="userName" class="fw-semibold small"></div>
+            <div id="userRole" class="text-muted" style="font-size: 0.75rem"></div>
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Main content -->
+    <main class="main-content">
+      <header class="top-bar">
+        <button class="btn btn-link d-lg-none" id="sidebarToggle"><i class="bi bi-list fs-4"></i></button>
+        <h1 id="pageTitle" class="h5 mb-0">Dashboard</h1>
+        <div class="ms-auto d-flex align-items-center gap-2">
+          <span class="badge bg-primary-subtle text-primary" id="myBalanceBadge"></span>
+        </div>
+      </header>
+
+      <div class="content-area">
+        <!-- Dashboard -->
+        <section id="page-dashboard" class="page-section">
+          <div class="row g-3 mb-4" id="statCards"></div>
+          <div class="row g-3">
+            <div class="col-lg-8">
+              <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white border-0 fw-semibold">Recent Transactions</div>
+                <div class="card-body p-0">
+                  <div class="table-responsive">
+                    <table class="table table-hover mb-0" id="recentTxTable">
+                      <thead class="table-light"><tr><th>Date</th><th>Type</th><th>Member</th><th class="text-end">Amount</th></tr></thead>
+                      <tbody></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-lg-4">
+              <div class="card shadow-sm border-0 mb-3">
+                <div class="card-header bg-white border-0 fw-semibold">Savings Goals</div>
+                <div class="card-body" id="goalProgressList"></div>
+              </div>
+              <div class="card shadow-sm border-0 role-treasurer d-none">
+                <div class="card-header bg-white border-0 fw-semibold">Top Contributors</div>
+                <div class="card-body p-0">
+                  <ul class="list-group list-group-flush" id="topContributors"></ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Transactions -->
+        <section id="page-transactions" class="page-section d-none">
+          <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-0 d-flex flex-wrap gap-2 align-items-center">
+              <span class="fw-semibold">Transaction History</span>
+              <div class="ms-auto d-flex flex-wrap gap-2">
+                <select class="form-select form-select-sm" id="txFilterType" style="width: auto">
+                  <option value="">All types</option>
+                  <option value="deposit">Deposits</option>
+                  <option value="withdrawal">Withdrawals</option>
+                  <option value="adjustment">Adjustments</option>
+                </select>
+                <input type="date" class="form-control form-control-sm" id="txFilterFrom" style="width: auto">
+                <input type="date" class="form-control form-control-sm" id="txFilterTo" style="width: auto">
+                <button class="btn btn-sm btn-primary" id="txFilterBtn"><i class="bi bi-funnel"></i> Filter</button>
+              </div>
+            </div>
+            <div class="card-body p-0">
+              <div class="table-responsive">
+                <table class="table table-hover mb-0" id="txTable">
+                  <thead class="table-light"><tr><th>Date</th><th>Type</th><th>Member</th><th>Description</th><th class="text-end">Amount</th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Withdrawals -->
+        <section id="page-withdrawals" class="page-section d-none">
+          <div class="row g-3">
+            <div class="col-lg-4">
+              <div class="card shadow-sm border-0">
+                <div class="card-header bg-white border-0 fw-semibold">Request Withdrawal</div>
+                <div class="card-body">
+                  <form id="withdrawalForm">
+                    <div class="mb-3">
+                      <label class="form-label">Amount</label>
+                      <div class="input-group">
+                        <span class="input-group-text" id="wdCurrency"></span>
+                        <input type="number" class="form-control" id="wdAmount" min="1" step="0.01" required>
+                      </div>
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label">Savings Goal (optional)</label>
+                      <select class="form-select" id="wdGoal"><option value="">General savings</option></select>
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label">Reason</label>
+                      <textarea class="form-control" id="wdReason" rows="2" required></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-warning w-100"><i class="bi bi-send"></i> Submit Request</button>
+                  </form>
+                </div>
+              </div>
+            </div>
+            <div class="col-lg-8">
+              <div class="card shadow-sm border-0">
+                <div class="card-header bg-white border-0 d-flex align-items-center">
+                  <span class="fw-semibold">Withdrawal Requests</span>
+                  <select class="form-select form-select-sm ms-auto" id="wdFilterStatus" style="width: auto">
+                    <option value="">All</option>
+                    <option value="pending">Pending</option>
+                    <option value="completed">Completed</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                </div>
+                <div class="card-body p-0">
+                  <div class="table-responsive">
+                    <table class="table table-hover mb-0" id="wdTable">
+                      <thead class="table-light"><tr><th>Date</th><th>Member</th><th>Amount</th><th>Status</th><th>Reason</th><th class="role-treasurer d-none">Actions</th></tr></thead>
+                      <tbody></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Goals -->
+        <section id="page-goals" class="page-section d-none">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="h6 mb-0 text-muted">Organization savings goals and pools</h2>
+            <button class="btn btn-primary btn-sm role-treasurer d-none" data-bs-toggle="modal" data-bs-target="#goalModal"><i class="bi bi-plus"></i> New Goal</button>
+          </div>
+          <div class="row g-3" id="goalsGrid"></div>
+        </section>
+
+        <!-- Statement -->
+        <section id="page-statement" class="page-section d-none">
+          <div class="card shadow-sm border-0 mb-3">
+            <div class="card-body">
+              <div class="row text-center" id="statementSummary"></div>
+            </div>
+          </div>
+          <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-0 fw-semibold">Your Transactions</div>
+            <div class="card-body p-0">
+              <div class="table-responsive">
+                <table class="table table-hover mb-0" id="statementTable">
+                  <thead class="table-light"><tr><th>Date</th><th>Type</th><th>Description</th><th class="text-end">Amount</th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Members -->
+        <section id="page-members" class="page-section d-none">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="h6 mb-0 text-muted">Manage organization members</h2>
+            <button class="btn btn-primary btn-sm role-admin d-none" data-bs-toggle="modal" data-bs-target="#memberModal"><i class="bi bi-person-plus"></i> Add Member</button>
+          </div>
+          <div class="card shadow-sm border-0">
+            <div class="card-body p-0">
+              <div class="table-responsive">
+                <table class="table table-hover mb-0" id="membersTable">
+                  <thead class="table-light"><tr><th>Name</th><th>Email</th><th>Role</th><th>Balance</th><th>Status</th><th class="role-admin d-none">Actions</th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Deposit -->
+        <section id="page-deposit" class="page-section d-none">
+          <div class="row justify-content-center">
+            <div class="col-lg-6">
+              <div class="card shadow-sm border-0">
+                <div class="card-header bg-white border-0 fw-semibold">Record Member Deposit</div>
+                <div class="card-body">
+                  <form id="depositForm">
+                    <div class="mb-3">
+                      <label class="form-label">Member</label>
+                      <select class="form-select" id="depMember" required></select>
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label">Amount</label>
+                      <div class="input-group">
+                        <span class="input-group-text" id="depCurrency"></span>
+                        <input type="number" class="form-control" id="depAmount" min="0.01" step="0.01" required>
+                      </div>
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label">Savings Goal (optional)</label>
+                      <select class="form-select" id="depGoal"><option value="">General savings</option></select>
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label">Description</label>
+                      <input type="text" class="form-control" id="depDescription" placeholder="Monthly contribution">
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label">Reference #</label>
+                      <input type="text" class="form-control" id="depReference" placeholder="Receipt or check number">
+                    </div>
+                    <button type="submit" class="btn btn-success w-100"><i class="bi bi-check-circle"></i> Record Deposit</button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Settings -->
+        <section id="page-settings" class="page-section d-none">
+          <div class="row g-3">
+            <div class="col-lg-6">
+              <div class="card shadow-sm border-0">
+                <div class="card-header bg-white border-0 fw-semibold">Organization Settings</div>
+                <div class="card-body">
+                  <form id="settingsForm">
+                    <div class="mb-3">
+                      <label class="form-label">Organization Name</label>
+                      <input type="text" class="form-control" id="setOrgName">
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label">Currency Code</label>
+                      <input type="text" class="form-control" id="setCurrency" maxlength="3">
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label">Minimum Withdrawal</label>
+                      <input type="number" class="form-control" id="setMinWithdrawal" min="0" step="0.01">
+                    </div>
+                    <div class="mb-3 form-check">
+                      <input type="checkbox" class="form-check-input" id="setAutoEnroll">
+                      <label class="form-check-label">Auto-enroll new Google users as members</label>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Save Settings</button>
+                  </form>
+                </div>
+              </div>
+            </div>
+            <div class="col-lg-6">
+              <div class="card shadow-sm border-0">
+                <div class="card-header bg-white border-0 fw-semibold">Database</div>
+                <div class="card-body">
+                  <p class="text-muted small">Initialize or repair the Google Sheets database structure. Safe to run multiple times.</p>
+                  <button class="btn btn-outline-secondary" id="initDbBtn"><i class="bi bi-database"></i> Initialize Database</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Audit -->
+        <section id="page-audit" class="page-section d-none">
+          <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-0 fw-semibold">Audit Log</div>
+            <div class="card-body p-0">
+              <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0" id="auditTable">
+                  <thead class="table-light"><tr><th>Timestamp</th><th>User</th><th>Action</th><th>Entity</th><th>Details</th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- Goal Modal -->
+  <div class="modal fade" id="goalModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">New Savings Goal</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <form id="goalForm">
+          <div class="modal-body">
+            <div class="mb-3"><label class="form-label">Goal Name</label><input type="text" class="form-control" id="goalName" required></div>
+            <div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" id="goalDesc" rows="2"></textarea></div>
+            <div class="mb-3"><label class="form-label">Target Amount</label><input type="number" class="form-control" id="goalTarget" min="1" step="0.01" required></div>
+            <div class="mb-3"><label class="form-label">Deadline</label><input type="date" class="form-control" id="goalDeadline"></div>
+          </div>
+          <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-primary">Create Goal</button></div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Member Modal -->
+  <div class="modal fade" id="memberModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">Add Member</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <form id="memberForm">
+          <div class="modal-body">
+            <div class="mb-3"><label class="form-label">Full Name</label><input type="text" class="form-control" id="memName" required></div>
+            <div class="mb-3"><label class="form-label">Email</label><input type="email" class="form-control" id="memEmail" required></div>
+            <div class="mb-3"><label class="form-label">Phone</label><input type="tel" class="form-control" id="memPhone"></div>
+            <div class="mb-3">
+              <label class="form-label">Role</label>
+              <select class="form-select" id="memRole">
+                <option value="member">Member</option>
+                <option value="treasurer">Treasurer</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+          </div>
+          <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-primary">Add Member</button></div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Review Modal -->
+  <div class="modal fade" id="reviewModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">Review Withdrawal</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <p id="reviewDetails"></p>
+          <div class="mb-3"><label class="form-label">Notes (optional)</label><textarea class="form-control" id="reviewNotes" rows="2"></textarea></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-danger" id="rejectWdBtn"><i class="bi bi-x-circle"></i> Reject</button>
+          <button type="button" class="btn btn-success" id="approveWdBtn"><i class="bi bi-check-circle"></i> Approve</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast-container position-fixed bottom-0 end-0 p-3">
+    <div id="toast" class="toast" role="alert">
+      <div class="toast-header"><strong class="me-auto" id="toastTitle">Notice</strong><button type="button" class="btn-close" data-bs-dismiss="toast"></button></div>
+      <div class="toast-body" id="toastBody"></div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <?!= include('AppScripts'); ?>
+</body>
+</html>

@@ -1,0 +1,161 @@
+<style>
+  :root {
+    --sidebar-width: 260px;
+    --primary: #1a73e8;
+    --sidebar-bg: #0f172a;
+    --sidebar-hover: #1e293b;
+  }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #f1f5f9;
+    overflow-x: hidden;
+  }
+
+  .loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: var(--sidebar-width);
+    height: 100vh;
+    background: var(--sidebar-bg);
+    color: #e2e8f0;
+    z-index: 1040;
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.3s ease;
+  }
+
+  .sidebar-brand {
+    padding: 1.25rem 1.5rem;
+    font-size: 1.1rem;
+    font-weight: 700;
+    border-bottom: 1px solid #1e293b;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .sidebar-brand i { color: #60a5fa; font-size: 1.4rem; }
+
+  .sidebar .nav-link {
+    color: #94a3b8;
+    padding: 0.7rem 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    border-left: 3px solid transparent;
+    transition: all 0.2s;
+  }
+
+  .sidebar .nav-link:hover {
+    color: #fff;
+    background: var(--sidebar-hover);
+  }
+
+  .sidebar .nav-link.active {
+    color: #fff;
+    background: var(--sidebar-hover);
+    border-left-color: #60a5fa;
+  }
+
+  .sidebar-footer {
+    margin-top: auto;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid #1e293b;
+  }
+
+  .user-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .user-info i { font-size: 2rem; color: #60a5fa; }
+
+  .main-content {
+    margin-left: var(--sidebar-width);
+    min-height: 100vh;
+  }
+
+  .top-bar {
+    background: #fff;
+    padding: 0.85rem 1.5rem;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 1020;
+  }
+
+  .content-area { padding: 1.5rem; }
+
+  .stat-card {
+    background: #fff;
+    border-radius: 0.75rem;
+    padding: 1.25rem;
+    border: none;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    transition: transform 0.2s;
+  }
+
+  .stat-card:hover { transform: translateY(-2px); }
+
+  .stat-card .icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3rem;
+  }
+
+  .stat-card .value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #0f172a;
+  }
+
+  .stat-card .label {
+    font-size: 0.8rem;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .goal-card {
+    background: #fff;
+    border-radius: 0.75rem;
+    padding: 1.25rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    height: 100%;
+  }
+
+  .progress { height: 8px; border-radius: 4px; }
+
+  .badge-pending { background: #fef3c7; color: #92400e; }
+  .badge-completed { background: #d1fae5; color: #065f46; }
+  .badge-rejected { background: #fee2e2; color: #991b1b; }
+
+  .amount-positive { color: #059669; font-weight: 600; }
+  .amount-negative { color: #dc2626; font-weight: 600; }
+
+  @media (max-width: 991.98px) {
+    .sidebar { transform: translateX(-100%); }
+    .sidebar.show { transform: translateX(0); }
+    .main-content { margin-left: 0; }
+  }
+</style>
